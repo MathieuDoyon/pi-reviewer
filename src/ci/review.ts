@@ -1,5 +1,5 @@
 import { Agent } from "@mariozechner/pi-agent-core";
-import { getModel } from "@mariozechner/pi-ai";
+import { getModel, getModels } from "@mariozechner/pi-ai";
 import { createReadOnlyTools } from "@mariozechner/pi-coding-agent";
 
 import { extractLastAssistantText } from "../../extensions/pi-reviewer/events.js";
@@ -19,10 +19,37 @@ export interface ReviewOptions {
   piApiKey?: string;
   repo?: string;
   commitId?: string;
-  model?: string; // format: "provider/modelId" e.g. "anthropic/claude-opus-4-6"
+  model?: string; // format: "provider/modelId" e.g. "anthropic/claude-opus-4-6" or "fireworks/kimi-k2p6"
   minSeverity?: MinSeverity;
 }
 
+function resolveModel(modelStr: string) {
+  const separatorIndex = modelStr.indexOf("/");
+  const provider = separatorIndex === -1 ? "" : modelStr.slice(0, separatorIndex);
+  const modelId = separatorIndex === -1 ? "" : modelStr.slice(separatorIndex + 1);
+  if (!provider || !modelId) {
+    throw new Error(`Invalid model format "${modelStr}". Expected "provider/modelId" e.g. "anthropic/claude-opus-4-6"`);
+  }
+
+  const exactModel = getModel(provider as any, modelId as any);
+  if (exactModel) return exactModel;
+
+  const normalizedModelId = modelId.toLowerCase();
+  const suffixMatches = getModels(provider as any).filter((candidate) => {
+    const candidateId = candidate.id.toLowerCase();
+    return candidateId.endsWith(`/${normalizedModelId}`) || candidate.name?.toLowerCase() === normalizedModelId;
+  });
+
+  if (suffixMatches.length === 1) return suffixMatches[0];
+
+  if (suffixMatches.length > 1) {
+    throw new Error(
+      `Ambiguous model "${modelStr}". Matches: ${suffixMatches.map((candidate) => `${candidate.provider}/${candidate.id}`).join(", ")}`
+    );
+  }
+
+  throw new Error(`Unknown model "${modelStr}". Expected a model known to @mariozechner/pi-ai.`);
+}
 
 export async function review(options: ReviewOptions): Promise<void> {
   const cwd = options.cwd ?? process.cwd();
@@ -61,15 +88,11 @@ export async function review(options: ReviewOptions): Promise<void> {
   let model;
   const modelStr = options.model ?? process.env.PI_REVIEWER_MODEL;
   if (modelStr) {
-    const [provider, modelId] = modelStr.split("/");
-    if (!provider || !modelId) {
-      throw new Error(`Invalid model format "${modelStr}". Expected "provider/modelId" e.g. "anthropic/claude-opus-4-6"`);
-    }
-    model = getModel(provider as any, modelId as any);
+    model = resolveModel(modelStr);
   }
 
   const resolvedModel = model ?? getModel("anthropic", "claude-opus-4-6");
-  console.log(`[pi-reviewer] running agent (model: ${resolvedModel.api})`);
+  console.log(`[pi-reviewer] running agent (model: ${resolvedModel.provider}/${resolvedModel.id}, api: ${resolvedModel.api})`);
 
   const agent = new Agent({
     initialState: {

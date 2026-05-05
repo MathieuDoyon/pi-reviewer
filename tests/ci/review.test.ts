@@ -104,6 +104,46 @@ describe("review", () => {
     );
   });
 
+  it("supports model ids containing slashes", async () => {
+    await review({ cwd: "/repo", model: "fireworks/accounts/fireworks/models/kimi-k2p6" });
+
+    expect(AgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialState: expect.objectContaining({
+          model: expect.objectContaining({
+            provider: "fireworks",
+            id: "accounts/fireworks/models/kimi-k2p6",
+          }),
+        }),
+      })
+    );
+  });
+
+  it("supports provider/short-model aliases for long provider model ids", async () => {
+    await review({ cwd: "/repo", model: "fireworks/kimi-k2p6" });
+
+    expect(AgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialState: expect.objectContaining({
+          model: expect.objectContaining({
+            provider: "fireworks",
+            id: "accounts/fireworks/models/kimi-k2p6",
+          }),
+        }),
+      })
+    );
+  });
+
+  it("fails fast when an explicit model is unknown", async () => {
+    AgentMock.mockClear();
+
+    await expect(review({ cwd: "/repo", model: "fireworks/unknown-model" })).rejects.toThrow(
+      'Unknown model "fireworks/unknown-model"'
+    );
+
+    expect(AgentMock).not.toHaveBeenCalled();
+  });
+
   it("uses comment output target in CI mode", async () => {
     process.env.GITHUB_ACTIONS = "true";
 
